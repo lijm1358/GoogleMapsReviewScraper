@@ -4,6 +4,7 @@ from selenium.common.exceptions import NoSuchElementException
 
 from sys import platform
 from tqdm import tqdm
+import json
 import getopt
 import sys
 import time
@@ -161,6 +162,59 @@ def getReviewerIter(placeList, verbose):
 
     driver.close()
 
+def getReview(placename):
+    reviewListFile = open("review.txt", "w", encoding='UTF-8')
+    resultJSON = []
+    driver = openChromeDriver()
+    driver.get("https://www.google.com/maps/")
+
+    KEYWORDS = placename
+    searchbox = driver.find_element_by_css_selector("input#searchboxinput")
+    searchbox.send_keys(KEYWORDS)
+
+    searchbutton = driver.find_element_by_css_selector("button#searchbox-searchbutton")
+    searchbutton.click()
+
+    time.sleep(5)
+
+    # Click All Reviews button, and waits for 4 seconds to load
+    reviewbutton = driver.find_element_by_css_selector("button.gm2-button-alt.HHrUdb-v3pZbf")
+    reviewbutton.click()
+
+    time.sleep(5)
+
+    # Load all elements indicating each reviews, scroll reviews till the end of review list
+    try:
+        reviewElement = driver.find_elements_by_css_selector("#pane > div.widget-pane > div.widget-pane-content > div.widget-pane-content-holder > div.section-layout > div.section-layout.section-scrollbox > div.section-layout")[3]
+    except IndexError:
+        reviewElement = driver.find_elements_by_css_selector("#pane > div.widget-pane > div.widget-pane-content > div.widget-pane-content-holder > div.section-layout > div.section-layout.section-scrollbox > div.section-layout")[2]
+
+    previousLastReview=None
+    while True:
+        time.sleep(2)
+        reviews = reviewElement.find_elements_by_xpath("//div[contains(@data-review-id, 'Ch')]")
+        lastReview = reviews[-1]
+        driver.execute_script('arguments[0].scrollIntoView(true);', lastReview)
+        if previousLastReview != lastReview:
+            previousLastReview = lastReview
+        else:
+            break
+
+    for c in reviews:
+        reviewer = c.get_attribute("aria-label")
+        message = c.find_elements_by_css_selector("div.ODSEW-ShBeI-ShBeI-content > span")[1].get_attribute('innerHTML')
+        ratings = c.find_element_by_css_selector("span.ODSEW-ShBeI-H1e3jb").get_attribute('aria-label')[4:5]
+        if reviewer is not None:
+            resultJSON.append({"name": reviewer, "ratings": ratings, "review_message": message})
+            
+    resultJSON = {"result": resultJSON}
+    resultJSON = json.dumps(resultJSON, ensure_ascii=False)
+    print(resultJSON)
+    reviewListFile.write(resultJSON)
+
+    reviewListFile.close()
+    driver.close()
+
 
 def crawlhelp():
     print("\nScrape review information from Google Maps.\n")
@@ -188,17 +242,16 @@ def main(argv):
         sys.exit(2)
 
     for opt, arg in opts:
-        if opt == '-h':
+        if opt in ('-h', '--help'):
             crawlhelp()
-        elif opt == '-m':
+        elif opt in ('-m', '--mode'):
             if arg is not None:
                 EXECMODE = arg
             else:
-                print("["+arg+"] is invalid mode. Must be one of [reviewer, reviewer_fromlist, review, review_fromlist]")
-                sys.exit(2)
-        elif opt == '-i':
+                print('No mode specified. Must be one of [reviewer, reviewer_fromlist, review, review_fromlist]')
+        elif opt in ('-i', '--input'):
             INPUT = arg
-        elif opt == '-v':
+        elif opt == ('-v', '--verbose'):
             VERBOSE = arg
     
     if EXECMODE is None:
@@ -215,6 +268,17 @@ def main(argv):
             print("need input as -i or --input.\nInput must be filename which contains list of place name you want to search for.")
         else:
             getReviewerIter(INPUT, VERBOSE)
+    elif EXECMODE == "review":
+        if INPUT is None:
+            print("need input as -i or --input.\nInput must be place name you want to search for.")
+        else:
+            getReview(INPUT)
+    elif EXECMODE == "review_fromlist":
+        print("Under construction...")
+    else:
+        print("["+EXECMODE+"] is invalid mode. Must be one of [reviewer, reviewer_fromlist, review, review_fromlist]")
+        sys.exit(2)
+    
 
 if __name__ == "__main__":
     main(sys.argv)
